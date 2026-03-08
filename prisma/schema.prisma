@@ -1,0 +1,99 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+}
+
+enum Role {
+  devotee
+  leader
+  superadmin
+}
+
+model User {
+  id            String        @id @default(cuid())
+  name          String?
+  email         String        @unique
+  emailVerified DateTime?
+  image         String?
+  role          Role          @default(devotee)
+  sectorName    String?
+  leaderId      String?
+  leader        User?         @relation("LeaderMembers", fields: [leaderId], references: [id])
+  members       User[]        @relation("LeaderMembers")
+  accounts      Account[]
+  sessions      Session[]
+  sadhanaDays   SadhanaDay[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model SadhanaDay {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date           DateTime
+  mangalaArati   Boolean  @default(false)
+  tulasiPuja     Boolean  @default(false)
+  chantBefore630 Int      @default(0)
+  chant630to8    Int      @default(0)
+  chant8to10     Int      @default(0)
+  chant10to9     Int      @default(0)
+  chantAfter9    Int      @default(0)
+  readingName    String?
+  readingMinutes Int      @default(0)
+  totalScore     Int      @default(0)
+  ekadashiObserved Boolean @default(false)
+  festivalNote   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, date], name: "userId_date")
+  @@index([date])
+  @@index([userId, date])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+
+model AppSetting {
+  key               String   @id
+  showFestivalFlags Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

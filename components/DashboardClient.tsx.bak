@@ -1,0 +1,198 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+type Role = "devotee" | "leader" | "superadmin";
+
+type DashboardRow = {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  leaderName?: string | null;
+  date: string;
+  mangalaArati: boolean;
+  tulasiPuja: boolean;
+  chantBefore630: number;
+  chant630to8: number;
+  chant8to10: number;
+  chant10to9: number;
+  chantAfter9: number;
+  readingName: string;
+  readingMinutes: number;
+  totalScore: number;
+};
+
+type UserOption = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+function scoreMinutes(minutes: number) {
+  if (minutes >= 60) return 20;
+  if (minutes >= 45) return 15;
+  if (minutes >= 30) return 10;
+  if (minutes >= 15) return 5;
+  return 0;
+}
+
+function calcTotal(row: DashboardRow) {
+  const a = (row.mangalaArati ? 4 : 0) + (row.tulasiPuja ? 4 : 0);
+  const b = row.chantBefore630 * 5 + row.chant630to8 * 4 + row.chant8to10 * 2 + row.chant10to9 - row.chantAfter9;
+  const c = scoreMinutes(row.readingMinutes);
+  return a + b + c;
+}
+
+export function DashboardClient({
+  role,
+  currentUserId,
+  initialRows,
+  visibleUsers,
+  initialStart,
+  initialEnd
+}: {
+  role: Role;
+  currentUserId: string;
+  initialRows: DashboardRow[];
+  visibleUsers: UserOption[];
+  initialStart: string;
+  initialEnd: string;
+}) {
+  const [rows, setRows] = useState<DashboardRow[]>(initialRows);
+  const [start, setStart] = useState(initialStart);
+  const [end, setEnd] = useState(initialEnd);
+  const [selectedUserId, setSelectedUserId] = useState(role === "devotee" ? currentUserId : "all");
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      const inRange = row.date >= start && row.date <= end;
+      const inUser = selectedUserId === "all" ? true : row.userId === selectedUserId;
+      return inRange && inUser;
+    });
+  }, [rows, start, end, selectedUserId]);
+
+  const summary = useMemo(() => {
+    const totalScore = filteredRows.reduce((sum, row) => sum + row.totalScore, 0);
+    const totalReading = filteredRows.reduce((sum, row) => sum + row.readingMinutes, 0);
+    const totalRounds = filteredRows.reduce((sum, row) => sum + row.chantBefore630 + row.chant630to8 + row.chant8to10 + row.chant10to9 + row.chantAfter9, 0);
+    return {
+      totalScore,
+      totalReading,
+      totalRounds,
+      totalDays: filteredRows.length,
+      avgScore: filteredRows.length ? totalScore / filteredRows.length : 0
+    };
+  }, [filteredRows]);
+
+  async function saveRow(row: DashboardRow) {
+    setSavingId(row.id);
+    const body = { ...row, totalScore: calcTotal(row) };
+    const res = await fetch("/api/sadhana", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    if (res.ok) {
+      const saved = await res.json();
+      setRows((prev) => prev.map((r) => (r.id === row.id ? saved.row : r)));
+    } else {
+      const data = await res.json().catch(() => ({ error: "Save failed" }));
+      alert(data.error || "Save failed");
+    }
+    setSavingId(null);
+  }
+
+  function updateRow(id: string, patch: Partial<DashboardRow>) {
+    setRows((prev) => prev.map((row) => (row.id === id ? { ...row, ...patch, totalScore: calcTotal({ ...row, ...patch }) } : row)));
+  }
+
+  return (
+    <div className="grid" style={{ gap: 16 }}>
+      <div className="card">
+        <div className="row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <div className="small muted">From</div>
+            <input className="input" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+          </div>
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <div className="small muted">To</div>
+            <input className="input" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+          </div>
+          {role !== "devotee" && (
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div className="small muted">Devotee</div>
+              <select className="select" value={selectedUserId} onChange={(e) => setSelectedUserId(e.target.value)}>
+                <option value="all">All devotees</option>
+                {visibleUsers.map((u) => (
+                  <option key={u.id} value={u.id}>{u.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid2">
+        <div className="stat"><div className="label">Score</div><div className="value">{summary.totalScore}</div></div>
+        <div className="stat"><div className="label">Avg / Day</div><div className="value">{summary.avgScore.toFixed(1)}</div></div>
+        <div className="stat"><div className="label">Rounds</div><div className="value">{summary.totalRounds}</div></div>
+        <div className="stat"><div className="label">Reading</div><div className="value">{summary.totalReading} min</div></div>
+      </div>
+
+      <div className="card">
+        <div className="row" style={{ marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 700 }}>
+              {role === "devotee" ? "My daily entries" : role === "leader" ? "Leader dashboard" : "Superadmin dashboard"}
+            </div>
+            <div className="muted">Filtered period report and editable rows</div>
+          </div>
+          <div className="badge">{filteredRows.length} rows</div>
+        </div>
+
+        <div className="grid">
+          {filteredRows.map((row) => (
+            <div className="dayCard" key={row.id}>
+              <div className="row" style={{ marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{row.userName}</div>
+                  <div className="muted">{row.date}</div>
+                </div>
+                <div className="badge">{row.totalScore}</div>
+              </div>
+
+              <div className="grid2">
+                <label className="dayCard" style={{ padding: 10 }}>
+                  <input type="checkbox" checked={row.mangalaArati} onChange={(e) => updateRow(row.id, { mangalaArati: e.target.checked })} /> Mangala Arati
+                </label>
+                <label className="dayCard" style={{ padding: 10 }}>
+                  <input type="checkbox" checked={row.tulasiPuja} onChange={(e) => updateRow(row.id, { tulasiPuja: e.target.checked })} /> Tulasi Puja
+                </label>
+              </div>
+
+              <div className="grid2" style={{ marginTop: 12 }}>
+                <div><div className="small muted">Up to 6:30</div><input className="input" type="number" value={row.chantBefore630} onChange={(e) => updateRow(row.id, { chantBefore630: Number(e.target.value || 0) })} /></div>
+                <div><div className="small muted">6:30 to 8</div><input className="input" type="number" value={row.chant630to8} onChange={(e) => updateRow(row.id, { chant630to8: Number(e.target.value || 0) })} /></div>
+                <div><div className="small muted">8 to 10</div><input className="input" type="number" value={row.chant8to10} onChange={(e) => updateRow(row.id, { chant8to10: Number(e.target.value || 0) })} /></div>
+                <div><div className="small muted">10 onward</div><input className="input" type="number" value={row.chant10to9} onChange={(e) => updateRow(row.id, { chant10to9: Number(e.target.value || 0) })} /></div>
+                <div><div className="small muted">After 9</div><input className="input" type="number" value={row.chantAfter9} onChange={(e) => updateRow(row.id, { chantAfter9: Number(e.target.value || 0) })} /></div>
+                <div><div className="small muted">Reading Minutes</div><input className="input" type="number" value={row.readingMinutes} onChange={(e) => updateRow(row.id, { readingMinutes: Number(e.target.value || 0) })} /></div>
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <div className="small muted">Book / Reading Name</div>
+                <input className="input" value={row.readingName} onChange={(e) => updateRow(row.id, { readingName: e.target.value })} />
+              </div>
+
+              <button className="btn orange" style={{ marginTop: 12 }} onClick={() => saveRow(row)} disabled={savingId === row.id}>
+                {savingId === row.id ? "Saving..." : "Save Row"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
